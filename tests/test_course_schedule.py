@@ -222,12 +222,24 @@ class CourseScheduleTests(unittest.TestCase):
     def test_legacy_window_only_before_schedule_exists(self):
         now = datetime(2026, 9, 29, 8, 30, tzinfo=CHINA_TIME)
         with tempfile.TemporaryDirectory() as directory, patch.dict(
-            "os.environ", {"LISTEN_WINDOWS": "TUE=08:00-09:40"}
+            "os.environ", {"LISTEN_WINDOWS": "TUE=08:00-09:40",
+                           "COURSE_SCHEDULE_ENABLED": "true"}
         ):
             path = Path(directory) / "schedule.json"
             self.assertIsNotNone(current_monitor_window({"目标课"}, now, path))
             path.write_text(json.dumps({"semester": 0, "classes": []}), encoding="utf-8")
             self.assertIsNone(current_monitor_window({"目标课"}, now, path))
+
+    def test_disabled_schedule_ignores_committed_file(self):
+        now = datetime(2026, 9, 29, 8, 30, tzinfo=CHINA_TIME)
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ", {"LISTEN_WINDOWS": "TUE=08:00-09:40",
+                           "COURSE_SCHEDULE_ENABLED": "false"}
+        ):
+            path = Path(directory) / "schedule.json"
+            path.write_text(json.dumps({"semester": semester_id(now.date()),
+                                        "classes": []}), encoding="utf-8")
+            self.assertIsNotNone(current_monitor_window({"目标课"}, now, path))
 
 
 if __name__ == "__main__":

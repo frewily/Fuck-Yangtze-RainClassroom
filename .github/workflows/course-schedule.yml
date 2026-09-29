@@ -16,27 +16,35 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      COURSE_SCHEDULE_ENABLED: ${{ secrets.HFUT_USERNAME != '' && secrets.HFUT_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ env.COURSE_SCHEDULE_ENABLED == 'true' }}
         with:
           persist-credentials: true
       - uses: actions/setup-python@v4
+        if: ${{ env.COURSE_SCHEDULE_ENABLED == 'true' }}
         with:
           python-version: '3.10'
       - name: Install schedule dependency
+        if: ${{ env.COURSE_SCHEDULE_ENABLED == 'true' }}
         run: |
           python -m pip install requests Pillow
           sudo apt-get update -qq
           sudo apt-get install -y -qq tesseract-ocr
       - name: Refresh only when the semester changes
+        if: ${{ env.COURSE_SCHEDULE_ENABLED == 'true' }}
         run: python -m function.course_schedule refresh
         env:
           HFUT_USERNAME: ${{ secrets.HFUT_USERNAME }}
           HFUT_PASSWORD: ${{ secrets.HFUT_PASSWORD }}
           FILTERED_COURSES: ${{ secrets.FILTERED_COURSES }}
       - name: Generate Android calendar subscription
+        if: ${{ env.COURSE_SCHEDULE_ENABLED == 'true' }}
         run: python -m function.course_calendar
       - name: Commit minimal timetable and calendar if changed
+        if: ${{ env.COURSE_SCHEDULE_ENABLED == 'true' }}
         run: |
           if [[ -z "$(git status --porcelain -- data/course_schedule.json data/course_schedule.ics)" ]]; then
             echo "No timetable or calendar changes"

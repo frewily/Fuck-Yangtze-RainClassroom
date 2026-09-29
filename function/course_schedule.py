@@ -116,10 +116,11 @@ def current_schedule_window(schedule, filtered_courses, now=None):
 
 
 def current_monitor_window(filtered_courses, now=None, path=SCHEDULE_PATH):
-    """Use the committed timetable; retain legacy windows until the first import."""
-    schedule = load_schedule(path)
-    if schedule is not None:
-        return current_schedule_window(schedule, set(filtered_courses), now)
+    """Use the timetable only when explicitly enabled; otherwise use weekly windows."""
+    if os.getenv("COURSE_SCHEDULE_ENABLED", "").lower() == "true":
+        schedule = load_schedule(path)
+        if schedule is not None:
+            return current_schedule_window(schedule, set(filtered_courses), now)
     return current_window_end(parse_listen_windows(os.getenv("LISTEN_WINDOWS", "")), now)
 
 
