@@ -34,14 +34,16 @@ jobs:
           HFUT_USERNAME: ${{ secrets.HFUT_USERNAME }}
           HFUT_PASSWORD: ${{ secrets.HFUT_PASSWORD }}
           FILTERED_COURSES: ${{ secrets.FILTERED_COURSES }}
-      - name: Commit minimal timetable if changed
+      - name: Generate Android calendar subscription
+        run: python -m function.course_calendar
+      - name: Commit minimal timetable and calendar if changed
         run: |
-          if [[ -z "$(git status --porcelain -- data/course_schedule.json)" ]]; then
-            echo "No timetable changes"
+          if [[ -z "$(git status --porcelain -- data/course_schedule.json data/course_schedule.ics)" ]]; then
+            echo "No timetable or calendar changes"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- data/course_schedule.json
-          git commit -m "Update minimal HFUT course schedule"
+          git add -- data/course_schedule.json data/course_schedule.ics
+          git commit -m "Update minimal HFUT course schedule and calendar"
           git push

@@ -51,6 +51,18 @@ WED=08:00-09:45
 7.去 Actions 页面手动点击 `Run workflow` 可检查运行结果。手动触发即使在配置时段外也会单次查课；若在时段内触发，则运行到该时段结束。
 ![图片4](src/img/Step_4.png)
 
+### Android 课前提醒（ICSx⁵）
+
+课表更新工作流还会自动生成公开的 [`data/course_schedule.ics`](data/course_schedule.ics)，每次课程都带有课前 10 分钟提醒。它只包含已筛选课程的名称和时间，不包含学号、密码或教务会话。手机同步后，提醒由 Android 本地日历发出，不依赖 GitHub Actions 在上课时准时运行。
+
+在 Android 手机上安装 ICSx⁵，并添加以下只读网络日历地址（设置一次即可）：
+
+```text
+https://raw.githubusercontent.com/frewily/Fuck-Yangtze-RainClassroom/main/data/course_schedule.ics
+```
+
+同步后，在手机日历 App 中开启该日历的显示与通知权限，检查事件是否有“提前 10 分钟”提醒；部分日历 App 会忽略订阅文件中的提醒，需要在 App 内为该日历设置默认提醒。允许 ICSx⁵ 后台同步，并关闭针对它和日历 App 的严格省电限制。首次订阅或新学期更新可能需要等待同步，建议先核对一节近期课程的时间和提醒。即使 GitHub Actions 后续漏跑，已同步到手机的课程仍会按本地时间提醒。
+
 ## 方法2 部署在服务器
 ### 🌟 说明
 
