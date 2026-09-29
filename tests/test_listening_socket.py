@@ -69,7 +69,7 @@ class ListeningSocketTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {
             "LISTEN_WINDOWS": "MON=08:00-08:10",
             "GITHUB_ACTIONS": "true",
-        }), mock.patch.object(start, "current_window_end", return_value=ending), \
+        }), mock.patch.object(start, "current_monitor_window", return_value=ending), \
                 mock.patch.object(start, "datetime") as fake_datetime, \
                 mock.patch.object(start.threading, "Event", return_value=fake_stop), \
                 mock.patch.object(start, "get_listening_classes_and_sign",

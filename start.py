@@ -6,16 +6,16 @@ from datetime import datetime
 import requests
 
 from config import filtered_courses
+from function.course_schedule import current_monitor_window
 from function.check_in import get_listening_classes_and_sign
-from function.listen_window import CHINA_TIME, current_window_end, parse_listen_windows
+from function.listen_window import CHINA_TIME
 
 
 CHECK_INTERVAL_SECONDS = 300
 
 
 def main():
-    windows = parse_listen_windows(os.getenv("LISTEN_WINDOWS", ""))
-    window_end = current_window_end(windows)
+    window_end = current_monitor_window(filtered_courses)
     if window_end is None:
         if os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch" or not os.getenv("GITHUB_ACTIONS"):
             print("手动单次检查课程", flush=True)

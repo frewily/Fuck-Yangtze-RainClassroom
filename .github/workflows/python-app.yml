@@ -24,9 +24,10 @@ jobs:
 
       - name: Check listening window
         id: window
-        run: python3 -m function.listen_window
+        run: python3 -m function.course_schedule check
         env:
             LISTEN_WINDOWS: ${{ secrets.LISTEN_WINDOWS }}
+            FILTERED_COURSES: ${{ secrets.FILTERED_COURSES }}
 
       - name: Set up Python
         if: ${{ steps.window.outputs.active == 'true' || github.event_name == 'workflow_dispatch' }}
