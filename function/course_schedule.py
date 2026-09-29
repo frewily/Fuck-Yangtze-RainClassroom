@@ -84,8 +84,17 @@ def load_schedule(path=SCHEDULE_PATH):
         if not isinstance(payload, dict) or not isinstance(payload.get("semester"), int):
             raise ScheduleError("课表元数据无效")
         tuples = _validated_entries(payload.get("classes"))
-        return {"semester": payload["semester"], "classes": [dict(zip(
-            ("course", "date", "start", "end"), item)) for item in tuples]}
+        selected_courses = payload.get("selected_courses")
+        if selected_courses is not None and (
+            not isinstance(selected_courses, list) or
+            any(not isinstance(name, str) or not name.strip() for name in selected_courses)
+        ):
+            raise ScheduleError("课表课程筛选元数据无效")
+        return {
+            "semester": payload["semester"],
+            "selected_courses": sorted(set(selected_courses)) if selected_courses is not None else None,
+            "classes": [dict(zip(("course", "date", "start", "end"), item)) for item in tuples],
+        }
     except (OSError, json.JSONDecodeError) as error:
         raise ScheduleError("课表文件无法读取") from error
 
@@ -228,8 +237,8 @@ def fetch_schedule(username, password, selected_courses, today=None, session=Non
         tuples = _validated_entries(entries)
         if not tuples:
             raise ScheduleError("课表中没有匹配 FILTERED_COURSES 的课程，未覆盖旧课表")
-        return {"semester": term, "classes": [dict(zip(
-            ("course", "date", "start", "end"), item)) for item in tuples]}
+        return {"semester": term, "selected_courses": sorted(selected_courses),
+                "classes": [dict(zip(("course", "date", "start", "end"), item)) for item in tuples]}
     except requests.RequestException as error:
         raise ScheduleError(f"教务网络请求失败：{type(error).__name__}") from None
     except (KeyError, TypeError, ValueError, AttributeError) as error:
@@ -247,9 +256,7 @@ def refresh(path=SCHEDULE_PATH):
         # A broken cache should be replaceable by a successful fresh download.
         print("已有课表文件无效，尝试重新获取")
         old = None
-    if old and old["semester"] == semester_id(today) and {
-        item["course"] for item in old["classes"]
-    } == selected:
+    if old and old["semester"] == semester_id(today) and old["selected_courses"] == sorted(selected):
         print("本学期课表已保存，跳过教务登录")
         return False
     payload = fetch_schedule(os.getenv("HFUT_USERNAME", ""), os.getenv("HFUT_PASSWORD", ""),

@@ -14,6 +14,7 @@ from function.course_schedule import (
     current_schedule_window,
     fetch_schedule,
     load_schedule,
+    refresh,
     semester_id,
 )
 from function.listen_window import CHINA_TIME
@@ -59,6 +60,40 @@ class FakeSession:
 
 
 class CourseScheduleTests(unittest.TestCase):
+    def test_cached_selection_can_include_course_without_classes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "schedule.json"
+            path.write_text(json.dumps({
+                "semester": semester_id(datetime.now(CHINA_TIME).date()),
+                "selected_courses": ["目标课", "未排课"],
+                "classes": [{"course": "目标课", "date": "2026-09-29",
+                             "start": "08:00", "end": "09:40"}],
+            }, ensure_ascii=False), encoding="utf-8")
+            with patch.dict("os.environ", {"FILTERED_COURSES": "目标课,未排课"}), \
+                    patch("function.course_schedule.fetch_schedule",
+                          side_effect=AssertionError("must not log in again")):
+                self.assertFalse(refresh(path))
+
+    def test_changed_selection_updates_cache_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "schedule.json"
+            path.write_text(json.dumps({
+                "semester": semester_id(datetime.now(CHINA_TIME).date()),
+                "selected_courses": ["目标课"],
+                "classes": [{"course": "目标课", "date": "2026-09-29",
+                             "start": "08:00", "end": "09:40"}],
+            }, ensure_ascii=False), encoding="utf-8")
+            updated = {"semester": semester_id(datetime.now(CHINA_TIME).date()),
+                       "selected_courses": ["目标课", "未排课"],
+                       "classes": [{"course": "目标课", "date": "2026-09-29",
+                                    "start": "08:00", "end": "09:40"}]}
+            with patch.dict("os.environ", {"FILTERED_COURSES": "目标课,未排课"}), \
+                    patch("function.course_schedule.fetch_schedule", return_value=updated) as fetch:
+                self.assertTrue(refresh(path))
+            self.assertEqual(1, fetch.call_count)
+            self.assertEqual(updated["selected_courses"], json.loads(
+                path.read_text(encoding="utf-8"))["selected_courses"])
+
     def test_captcha_uses_same_session_and_submits_ocr_code(self):
         class LoginSession:
             def __init__(self):
