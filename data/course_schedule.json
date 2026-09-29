@@ -1,5 +1,10 @@
 {
   "semester": 354,
+  "selected_courses": [
+    "java 程序设计",
+    "通用学术英语",
+    "马克思主义基本原理"
+  ],
   "classes": [
     {
       "course": "通用学术英语",
