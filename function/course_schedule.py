@@ -8,10 +8,12 @@ import argparse
 import json
 import os
 import re
+import subprocess
 from datetime import date, datetime
 from html.parser import HTMLParser
+from io import BytesIO
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from function.listen_window import CHINA_TIME, current_window_end, parse_listen_windows
 
@@ -23,6 +25,7 @@ PORTAL_BASE = "https://jxglstu.hfut.edu.cn/eams5-student/"
 # timetable itself is available via HTTPS.
 CAS_SERVICE = "http://jxglstu.hfut.edu.cn/eams5-student/neusoft-sso/login"
 TIMEOUT = 20
+MAX_LOGIN_ATTEMPTS = 2
 
 
 class ScheduleError(RuntimeError):
@@ -117,6 +120,31 @@ def _get(session, url, **kwargs):
     return response
 
 
+def _recognize_captcha(image_bytes):
+    """Run the reference app's grayscale + English single-line OCR in memory."""
+    if not image_bytes or len(image_bytes) > 1_000_000:
+        raise ScheduleError("验证码图片无效")
+    try:
+        from PIL import Image, UnidentifiedImageError
+
+        with Image.open(BytesIO(image_bytes)) as image:
+            image.load()
+            prepared = BytesIO()
+            image.convert("L").save(prepared, format="PNG")
+        result = subprocess.run(
+            ["tesseract", "stdin", "stdout", "--psm", "7", "-l", "eng"],
+            input=prepared.getvalue(), capture_output=True, timeout=15, check=False,
+        )
+    except (OSError, UnidentifiedImageError, subprocess.TimeoutExpired, ValueError) as error:
+        raise ScheduleError(f"验证码 OCR 无法运行：{type(error).__name__}") from None
+    if result.returncode != 0:
+        raise ScheduleError("验证码 OCR 运行失败")
+    code = re.sub(r"[^A-Za-z0-9]", "", result.stdout.decode("utf-8", errors="ignore"))
+    if not 2 <= len(code) <= 8:
+        raise ScheduleError("验证码 OCR 结果不可靠，已停止登录")
+    return code
+
+
 def _login(session, username, password):
     # The CAS service URL is a URL parameter; never log response URLs, bodies,
     # headers or exceptions, since they may contain tickets/cookies.
@@ -125,23 +153,31 @@ def _login(session, username, password):
         init_data = init.json()
         if not isinstance(init_data, dict) or not isinstance(init_data.get("vercode"), bool):
             raise ScheduleError("教务登录初始化响应无效")
-        if init_data["vercode"]:
-            raise ScheduleError("教务登录要求验证码，无法无人值守获取课表")
     except ValueError:
         raise ScheduleError("教务登录初始化响应无效") from None
     login_url = urljoin(CAS_BASE, "login")
-    page = _get(session, login_url, params={"service": CAS_SERVICE})
-    parser = _ExecutionParser()
-    parser.feed(page.text)
-    if not parser.execution:
-        raise ScheduleError("教务登录页面缺少必要参数")
-    response = session.post(login_url, params={"service": CAS_SERVICE}, data={
-        "username": username, "password": password, "execution": parser.execution,
-        "_eventId": "submit", "capcha": "",
-    }, timeout=TIMEOUT)
-    response.raise_for_status()
-    if "jxglstu.hfut.edu.cn" not in response.url or "/eams5-student/" not in response.url:
-        raise ScheduleError("教务登录未成功，可能需要验证码或校内网络")
+    attempts = MAX_LOGIN_ATTEMPTS if init_data["vercode"] else 1
+    for _ in range(attempts):
+        page = _get(session, login_url, params={"service": CAS_SERVICE})
+        parser = _ExecutionParser()
+        parser.feed(page.text)
+        if not parser.execution:
+            raise ScheduleError("教务登录页面缺少必要参数")
+        code = ""
+        if init_data["vercode"]:
+            captcha = _get(session, urljoin(CAS_BASE, "vercode"))
+            code = _recognize_captcha(captcha.content)
+        response = session.post(login_url, params={"service": CAS_SERVICE}, data={
+            "username": username, "password": password, "execution": parser.execution,
+            "_eventId": "submit", "capcha": code,
+        }, timeout=TIMEOUT)
+        response.raise_for_status()
+        destination = urlparse(response.url)
+        if destination.hostname == "jxglstu.hfut.edu.cn" and destination.path.startswith(
+            "/eams5-student/"
+        ):
+            return
+    raise ScheduleError("教务登录未通过，验证码识别最多尝试两次；也可能是账号或网络问题")
 
 
 def _time(value):

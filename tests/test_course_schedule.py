@@ -2,11 +2,14 @@ import json
 import tempfile
 import unittest
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 from function.course_schedule import (
     ScheduleError,
+    _login,
+    _recognize_captcha,
     current_monitor_window,
     current_schedule_window,
     fetch_schedule,
@@ -17,10 +20,11 @@ from function.listen_window import CHINA_TIME
 
 
 class FakeResponse:
-    def __init__(self, *, url="", text="", data=None):
+    def __init__(self, *, url="", text="", data=None, content=b""):
         self.url = url
         self.text = text
         self.data = data
+        self.content = content
 
     def raise_for_status(self):
         pass
@@ -55,6 +59,96 @@ class FakeSession:
 
 
 class CourseScheduleTests(unittest.TestCase):
+    def test_captcha_uses_same_session_and_submits_ocr_code(self):
+        class LoginSession:
+            def __init__(self):
+                self.get_paths = []
+                self.posts = []
+
+            def get(self, url, **kwargs):
+                self.get_paths.append(url)
+                if url.endswith("checkInitParams"):
+                    return FakeResponse(data={"vercode": True})
+                if url.endswith("cas/login"):
+                    return FakeResponse(text='<input name="execution" value="e1s1">')
+                if url.endswith("cas/vercode"):
+                    return FakeResponse(content=b"fake-image")
+                raise AssertionError(url)
+
+            def post(self, url, **kwargs):
+                self.posts.append(kwargs["data"])
+                return FakeResponse(url="http://jxglstu.hfut.edu.cn/eams5-student/for-std/course-table")
+
+        session = LoginSession()
+        with patch("function.course_schedule._recognize_captcha", return_value="A1B2", create=True):
+            _login(session, "dummy-user", "dummy-password")
+        self.assertEqual(1, len(session.posts))
+        self.assertEqual("A1B2", session.posts[0]["capcha"])
+        self.assertTrue(any(path.endswith("cas/vercode") for path in session.get_paths))
+
+    def test_failed_captcha_login_stops_after_two_posts(self):
+        class LoginSession:
+            def __init__(self):
+                self.posts = 0
+                self.images = 0
+
+            def get(self, url, **kwargs):
+                if url.endswith("checkInitParams"):
+                    return FakeResponse(data={"vercode": True})
+                if url.endswith("cas/login"):
+                    return FakeResponse(text='<input name="execution" value="e1s1">')
+                if url.endswith("cas/vercode"):
+                    self.images += 1
+                    return FakeResponse(content=b"fake-image")
+                raise AssertionError(url)
+
+            def post(self, url, **kwargs):
+                self.posts += 1
+                return FakeResponse(url="https://cas.hfut.edu.cn/cas/login")
+
+        session = LoginSession()
+        with patch("function.course_schedule._recognize_captcha", return_value="A1B2"):
+            with self.assertRaises(ScheduleError):
+                _login(session, "dummy-user", "dummy-password")
+        self.assertEqual(2, session.posts)
+        self.assertEqual(2, session.images)
+
+    def test_ocr_failure_never_submits_password(self):
+        class LoginSession:
+            posts = 0
+
+            def get(self, url, **kwargs):
+                if url.endswith("checkInitParams"):
+                    return FakeResponse(data={"vercode": True})
+                if url.endswith("cas/login"):
+                    return FakeResponse(text='<input name="execution" value="e1s1">')
+                if url.endswith("cas/vercode"):
+                    return FakeResponse(content=b"fake-image")
+                raise AssertionError(url)
+
+            def post(self, url, **kwargs):
+                self.posts += 1
+                raise AssertionError("password must not be submitted")
+
+        session = LoginSession()
+        with patch("function.course_schedule._recognize_captcha",
+                   side_effect=ScheduleError("验证码 OCR 结果不可靠")):
+            with self.assertRaises(ScheduleError):
+                _login(session, "dummy-user", "dummy-password")
+        self.assertEqual(0, session.posts)
+
+    def test_ocr_normalizes_text_without_writing_image(self):
+        from PIL import Image
+
+        image = BytesIO()
+        Image.new("RGB", (100, 45), "white").save(image, format="PNG")
+        with patch("function.course_schedule.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = b"A1 B2\n"
+            self.assertEqual("A1B2", _recognize_captcha(image.getvalue()))
+        self.assertEqual(b"\x89PNG", run.call_args.kwargs["input"][:4])
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+
     def test_semester_rollover(self):
         self.assertEqual(semester_id(date(2026, 1, 15)), semester_id(date(2025, 9, 1)))
         self.assertNotEqual(semester_id(date(2026, 1, 15)), semester_id(date(2026, 2, 1)))
